@@ -1,19 +1,19 @@
-#include "DHT.h"    // DHT library include
 #include "Ethernet.h"
 #include "SPI.h"
 #include "RestClient.h"
 #include "ArduinoJson.h"
-DHT dht;
+#include "DHT.h"
 
 byte mac[] = {
   0x00, 0xAA, 0xBB, 0xCC, 0xDE, 0x02
 };
 
+DHT dht;
 StaticJsonBuffer<2000> constantsJSONBuffer;
 JsonObject& constants = constantsJSONBuffer.createObject();
+RestClient client = RestClient("10.0.4.81", 8000);
 
 void setup() {
-  dht.setup(10); // init DHT on port 10
   pinMode(4, OUTPUT);
   pinMode(5, OUTPUT);
   pinMode(7, OUTPUT);
@@ -26,33 +26,42 @@ void setup() {
   }
   // print your local IP address:
   printIPAddress();
+  dht.setup(8);
 }
 
 void loop() {
-  
-  delay(dht.getMinimumSamplingPeriod());
-  dht.getHumidity();
-  dht.getTemperature();
   Serial.println("===start===");
   set_constance<int>("FREQUENCY");
   set_constance<bool>("LID_STATUS");
   set_constance<float>("TEMPERATURE_LIMIT");
   digitalWrite(7, constants["LID_STATUS"] ? HIGH : LOW);
+  checkTemperature();
   Serial.println("===end===");
   delay(constants["FREQUENCY"]);
+}
 
-//  if (isnan(t) || isnan(h)) {
-//    Serial.println("Failed to read from DHT");
-//  } else {
-//    Serial.print("Humidity: ");
-//    Serial.print(h);
-//    Serial.print(" %\t");
-//    Serial.print("Temperature: ");
-//    Serial.print(t);
-//    Serial.println(" *C");
-//    digitalWrite(t > constants["TEMPERATURE_LIMIT"] ? 4 : 5, HIGH);
-//    digitalWrite(t < constants["TEMPERATURE_LIMIT"] ? 4 : 5, LOW);
-//  }
+void checkTemperature() {
+  delay(dht.getMinimumSamplingPeriod());
+  float h = dht.getHumidity();
+  float t = dht.getTemperature();
+  bool is_exceeded = t > constants["TEMPERATURE_LIMIT"];
+  digitalWrite(is_exceeded ? 5 : 4, HIGH);
+  digitalWrite(is_exceeded ? 4 : 5, LOW);
+  if (isnan(t) || isnan(h)) {
+    Serial.println("Failed to read from DHT");
+  } else {
+    Serial.print("Humidity: ");
+    Serial.print(h);
+    Serial.print(" %\t");
+    Serial.print("Temperature: ");
+    Serial.print(t);
+    Serial.println(" *C");
+    String json_to_post_string = "temperature=" + String(t) + "&" + "humidity=" + String(h);
+    int json_to_post_string_len = json_to_post_string.length() + 1;
+    char char_url_array[json_to_post_string_len];
+    json_to_post_string.toCharArray(char_url_array, json_to_post_string_len);
+    client.post("/logs/", char_url_array);
+  }
 }
 
 void printIPAddress() {
@@ -73,7 +82,6 @@ template<typename T> void set_constance(String const_name) {
 }
 
 String get_constance(String constance_name) {
-  RestClient client = RestClient("10.0.4.81", 8000);
   String server_response = "";
   String url = "/config/" + constance_name + "/";
   int url_len = url.length() + 1;
@@ -85,7 +93,6 @@ String get_constance(String constance_name) {
   Serial.print(statusCode);
   Serial.print("] ");
   Serial.println(server_response);
-  delay(200);
   return server_response;
 }
 
